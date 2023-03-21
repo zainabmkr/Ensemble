@@ -1,0 +1,142 @@
+---
+title: "Project 2"
+author: "Zainab Sheerin_Mohamed Shuaib"
+date: "2023-03-20"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r }
+# Importing and parsing the dataset
+library(mlbench)
+data(BreastCancer)
+df <- data.frame(BreastCancer)
+df$Class <- as.factor(df$Class)
+df$Id <- NULL
+
+# Removing rows with missing values
+df <- na.omit(df)
+
+# Splitting the data into training and test sets
+library(caret)
+set.seed(123)
+inTraining <- createDataPartition(y = df$Class, p = 0.7, list = FALSE)
+training <- df[inTraining, ]
+testing <- df[-inTraining, ]
+```
+
+```{r }
+# RandomForest classifier
+library(randomForest)
+rf_model <- randomForest(Class ~ ., data = training)
+train <- na.omit(train)
+important_features <- cbind(names(df)[-1], rf_model$importance)
+important_features <- important_features[order(important_features[, 2], decreasing = TRUE), ]
+important_features <- important_features[1:5, 1]
+
+library(caret)
+# Make predictions on the testing dataset
+predictions_rf <- predict(rf_model, testing)
+
+# Create confusion matrix
+confusionMatrix(predictions_rf, testing$Class)
+
+# Calculate accuracy
+accuracy_rf <- confusionMatrix(predictions_rf, testing$Class)$overall['Accuracy']
+cat("Accuracy: ", round(accuracy_rf, 3), "\n")
+
+# Calculate recall for class "1"
+recall_rf <- confusionMatrix(predictions_rf, testing$Class)$byClass['Sensitivity']
+cat("Recall for class '1': ", round(recall_rf, 3), "\n")
+```
+
+```{r}
+# Logistic Regression classifier
+library(glmnet)
+
+# Fit the glmnet model
+glmnet_model <- glmnet(x = as.matrix(training[, -1]), y = training$Class, family = "binomial")
+
+# Selecting the top 5 features based on importance
+important_features <- c("Cl.thickness", names(df)[-1])[order(-abs(glmnet_model$beta[,1]))][1:5]
+
+# Prepare the testing data with selected features
+testing_features <- testing[, c("Class", important_features)]
+
+# Remove rows with missing values
+testing_features <- testing_features[complete.cases(testing_features),]
+
+# Make sure testing data has same variables as training data
+missing_vars <- setdiff(names(training)[-1], names(testing_features)[-1])
+if (length(missing_vars) > 0) {
+  testing_features[, missing_vars] <- 0
+}
+testing_features <- data.frame(sapply(testing_features, as.numeric))
+
+# Make predictions and convert probabilities to classes
+predictions <- predict(glmnet_model, newx = as.matrix(testing_features[, -1]), type = "response")
+predicted_classes <- ifelse(predictions > 0.5, "M", "B")
+
+# Create the accuracy
+accuracy_glmnet <- mean(predicted_classes == testing_features$Class)
+cat("Accuracy: ", round(accuracy_glmnet, 3), "\n")
+```
+
+```{r}
+# nnet classifier
+library(nnet)
+nnet_model <- nnet(Class ~ ., data = training, size = 5, maxit = 1000, decay = 0.01)
+
+# Make predictions on the test data
+nnet_prob <- predict(nnet_model, newdata = testing, type = "raw")
+nnet_predictions <- ifelse(nnet_prob > 0.5, "M", "B")
+```
+
+```{r}
+# decision Tree classifier
+df <- data.frame(BreastCancer)
+df$Class <- as.factor(df$Class)
+df$Id <- NULL
+
+# Removing rows with missing values
+df <- na.omit(df)
+
+# Splitting the data into training and test sets
+library(caret)
+set.seed(123)
+inTraining <- createDataPartition(y = df$Class, p = 0.7, list = FALSE)
+training <- df[inTraining, ]
+testing <- df[-inTraining, ]
+
+library(rpart)
+decision_tree <- rpart(Class ~ ., data = training, method = "class")
+
+# Making predictions on the test dataset
+predictions_tree <- predict(decision_tree, testing, type = "class")
+```
+
+
+```{r}
+# Combine the predictions of the four classifiers
+ensemble_predictions <- data.frame(rf = predictions_rf[1:204], glmnet = predicted_classes[1:204], nnet = nnet_predictions[1:204], decision_tree = predictions_tree[1:204])
+
+# Subset to complete cases
+ensemble_predictions <- ensemble_predictions[complete.cases(testing), ]
+
+# Convert factor levels
+ensemble_predictions <- data.frame(lapply(ensemble_predictions, as.factor))
+levels(ensemble_predictions$rf) <- levels(testing$Class)
+levels(ensemble_predictions$glmnet) <- levels(testing$Class)
+levels(ensemble_predictions$nnet) <- levels(testing$Class)
+levels(ensemble_predictions$decision_tree) <- levels(testing$Class)
+
+# Combine predictions
+final_predictions <- apply(ensemble_predictions, 1, function(x) ifelse(sum(x == "M") > sum(x == "B"), "M", "B"))
+final_predictions
+```
+
